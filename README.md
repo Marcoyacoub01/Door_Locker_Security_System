@@ -35,7 +35,7 @@ with the specifications of Door Locker Security System  to unlock a door using a
 
 + Press enter button (choose any button in the keypad as enter button).
 
-+HMI_ECU should send the two passwords to the Control_ECU through the UART.
++ HMI_ECU should send the two passwords to the Control_ECU through the UART.
 
 + If the two passwords are matched then the system has a password now and save it inside the EEPORM and go to Step 2.
 
