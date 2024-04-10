@@ -45,7 +45,8 @@ with the specifications of Door Locker Security System  to unlock a door using a
 
 + The LCD will always display the main system option:
 
-![f5](https://github.com/Marcoyacoub01/Door_Locker_Security_System/assets/118049131/52117204-d3e4-43ab-9a73-fa402844abeb)
+![f9](https://github.com/Marcoyacoub01/Door_Locker_Security_System/assets/118049131/ddfc38cc-5481-4a4b-87e5-a710b472af65)
+
 
 > Step3 - Open Door (+)
 
