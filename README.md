@@ -50,9 +50,10 @@ with the specifications of Door Locker Security System  to unlock a door using a
 > Step3 - Open Door (+)
 
 + The LCD should display “Please Enter Password”.
+
 + Enter the password then press enter button (choose any button in the keypad as enter button).
 
-+HMI_ECU should send the Password to the Control_ECU and it should compare it with the one saved in the EEPROM.
++ HMI_ECU should send the Password to the Control_ECU and it should compare it with the one saved in the EEPROM.
 
 + if two passwords are matched :
 
