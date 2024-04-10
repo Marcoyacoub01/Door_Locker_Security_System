@@ -1,12 +1,20 @@
 # Door Locker Security System
 This project is designed and implemented based on the layered architecture
+
 with the specifications of Door Locker Security System  to unlock a door using a password.
+
 ## Using two ATmega32 Microcontrollers with frequency 8Mhz.
+
 **Mc1 → HMI_ECU (Human Machine Interface)** with 2x16 LCD and 4x4 keypad.
+
 **HMI_ECU** is just responsible interaction with the user just take inputs through keypad and display messages on the LCD.
+
 ![f1](https://github.com/Marcoyacoub01/Door_Locker_Security_System/assets/118049131/3d5065d6-adcb-4bc1-8ed1-f35e3e9efaf5)
+
 **Mc2 → Control_ECU** with EEPROM, Buzzer, and Dc-Motor.
+
 **CONTROL_ECU** is responsible for all the processing and decisions in the system like password checking, open the door and activate the system alarm.
+
 ![f2](https://github.com/Marcoyacoub01/Door_Locker_Security_System/assets/118049131/bb462e13-fa27-4e16-b759-eda887c2100d)
 
 >Step1 – Create a System Password
