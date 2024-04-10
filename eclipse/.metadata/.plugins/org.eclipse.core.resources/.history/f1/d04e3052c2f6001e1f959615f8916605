@@ -1,0 +1,220 @@
+/*
+ * FINAL PROJECT
+ *
+ * File Name: Control_ECU.c
+ *
+ * Author: MARCO
+ */
+
+#include "Control_ECU.h"
+
+int main (void){
+	initialization();
+
+	uint8 password_one[5]; //array to save the first password received from HMI_ECU and do operations on it
+	uint8 password_two[5]; //array to save the second password received from HMI_ECU and do operations on it
+	uint8 password_three[5]; //array to save the other check passwords received from HMI_ECU and do operations on it
+	uint8 password_epprom[5];//array to save the password received from EEPROM and do operations on it
+	uint8 flag=CREATE_SYSTEM_PASSWORD; // //flag to start from CREATE_SYSTEM_PASSWORD
+
+	sync_recive();    //GETTING UART READY
+	while(1)
+	{
+		/*
+		 * Sends a flag to HMI_ECU indicating the action the two ECUs will take
+		 */
+		sync_send();
+		UART_sendByte(flag);
+
+		if (flag == CREATE_SYSTEM_PASSWORD)
+		{
+			recive_password(password_one);
+			recive_password(password_two);
+			LCD_clearScreen();
+			LCD_displayString("pass 1 :");
+			print_pass(password_one);
+			LCD_moveCursor(1,0);
+			LCD_displayString("pass 2 :");
+			print_pass(password_two);
+			_delay_ms(1500);
+			LCD_clearScreen();
+			if (check_passwords(password_one,password_two) == MATCHED_PASSWORDS)
+			{
+
+				//print matched passwords on the lcd
+				display_matched_on_lcd();
+
+				sync_send(); // sync start send matched or unmatched bit
+				UART_sendByte(MATCHED_PASSWORDS);
+
+				/* send the Password to EEOROM through TWI
+				 * writing only one password , I chose here password_one[]
+			     */
+				write_to_eeprom(password_one);
+
+				LCD_clearScreen();
+				LCD_displayString("PASS SAVED IN");
+				LCD_moveCursor(1,3);
+				LCD_displayString("EEPROM");
+				_delay_ms(1000);
+				LCD_clearScreen();
+
+				flag = MENU;
+				sync_send();
+				UART_sendByte(flag); // send MENU macro to HMI_ECU
+			}
+			else if (check_passwords(password_one,password_two) == UNMATCHED_PASSWORDS)
+			{
+				//print UNmatched passwords on the lcd
+				display_unmatched_on_lcd();
+
+				sync_send(); // start send matched or unmatched passwords
+				UART_sendByte(UNMATCHED_PASSWORDS);
+
+				/*start the system again and send this flag to MHI_ECU */
+				flag = CREATE_SYSTEM_PASSWORD;
+			}
+		}
+
+		if (flag == MENU)
+		{
+			uint8 plus_or_minus;
+
+			sync_recive();
+			plus_or_minus = UART_recieveByte(); //receive the pressed key if + or -
+
+			if (plus_or_minus == '+')
+			{
+			    uint8	i=0;
+				while(i<3)
+				{
+					recive_password(password_three);   //receive password and save it in password_three
+					read_from_eeprom(password_epprom); //read password saved in eeprom and save it in password_epprom
+
+					//display password on the lcd
+					LCD_displayString("Entered:");
+					print_pass(password_three);
+					_delay_ms(1000);
+					LCD_clearScreen();
+
+					if (check_passwords(password_three,password_epprom) == MATCHED_PASSWORDS)
+					{
+						/*
+						 * if matched send MATCHED_PASSWORDS to HMI_ECU
+						 * and do door operation
+						 * and let flag = MENU to start the menu again
+						 * and send MENU macro to HMI_ECU to start the MENU either
+						 * the flag will be sent to HMI_ECU at the begging of the main while(1) after break
+						 *
+						 */
+
+						//print matched passwords on the lcd
+						display_matched_on_lcd();
+
+						sync_send(); // sync start send matched or unmatched byte
+						UART_sendByte(MATCHED_PASSWORDS);
+						door_operation();
+
+						flag = MENU;
+						break;  //after break will start from the main while(1) and send the flag to HMI_ECU
+
+					}
+					else if ((check_passwords(password_three,password_epprom) == UNMATCHED_PASSWORDS) && (i==2))
+					{
+						/*
+						 * if unmatched and i=2 passwords send LOCKED  to HMI_ECU
+						 * and do system locked operation
+						 * and let flag = MENU to start the menu again
+						 * and send MENU macro to HMI_ECU to start the MENU either
+						 * the flag will be sent to HMI_ECU at the begging of the main while(1) after break
+						 */
+						sync_send(); // start send matched or unmatched passwords
+						UART_sendByte(LOCKED);
+						system_locked();
+
+						flag = MENU;
+						break; //after break will start from the main while(1) and send the flag to HMI_ECU
+					}
+					else if(check_passwords(password_three,password_epprom) == UNMATCHED_PASSWORDS)
+					{
+						//print UNmatched passwords on the lcd
+						display_unmatched_on_lcd();
+
+						sync_send(); // sync start send matched or unmatched byte
+						UART_sendByte(UNMATCHED_PASSWORDS);
+					}
+					i++;
+				}
+			}
+			else if (plus_or_minus == '-')
+			{
+				uint8 i=0;
+				while (i<3)
+				{
+					recive_password(password_three);   //receive password and save it in password_three
+					read_from_eeprom(password_epprom); //read password saved in eeprom and save it in password_epprom
+
+					//display password on the lcd
+					LCD_displayString("Entered:");
+					print_pass(password_three);
+					_delay_ms(1000);
+					LCD_clearScreen();
+
+					if (check_passwords(password_three,password_epprom) == MATCHED_PASSWORDS)
+					{
+						/*
+						 * if matched  send MATCHED_PASSWORDS to HMI_ECU
+						 * and let flag = CREATE_SYSTEM_PASSWORD to start the menu again
+						 * and send CREATE_SYSTEM_PASSWORD macro to HMI_ECU to start the create system password either
+						 * the flag will be sent to HMI_ECU at the begging of the main while(1) after break
+						 */
+
+						//print matched passwords on the lcd
+						display_matched_on_lcd();
+
+						sync_send();
+						UART_sendByte(MATCHED_PASSWORDS);
+
+						flag = CREATE_SYSTEM_PASSWORD;
+						break;//after break will start from the main while(1) and send the flag to HMI_ECU
+
+
+					}
+					else if ((check_passwords(password_three,password_epprom) == UNMATCHED_PASSWORDS) && (i==2))
+					{
+						/*
+						* if unmatched and i =2 send LOCKED  to HMI_ECU
+						* and do system locked operation
+						* and let flag = MENU to start the menu again
+						* and send MENU macro to HMI_ECU to start the MENU either
+						* the flag will be sent to HMI_ECU at the begging of the main while(1) after break
+						*/
+						sync_send();
+						UART_sendByte(LOCKED);
+						system_locked();
+
+						flag = MENU;
+						break; //after break will start from the main while(1) and send the flag to HMI_ECU
+					}
+					else if(check_passwords(password_three,password_epprom) == UNMATCHED_PASSWORDS)
+					{
+
+						//print UNmatched passwords on the lcd
+						display_unmatched_on_lcd();
+
+						sync_send();
+						UART_sendByte(UNMATCHED_PASSWORDS);
+					}
+					i++;
+				}
+			}
+		}
+	}
+}
+
+
+
+
+
+
+

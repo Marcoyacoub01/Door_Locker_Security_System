@@ -1,0 +1,517 @@
+/*
+ * FINAL PROJECT
+ *
+ * File Name: Control_ECU.c
+ *
+ * Author: MARCO
+ */
+
+
+#include <avr/io.h>
+#include <util/delay.h>
+#include "buzzer.h"
+#include "dcMotor.h"
+#include "external_eeprom.h"
+#include "gpio.h"
+#include "timer1.h"
+#include "twi.h"
+#include "uart.h"
+#include "lcd.h"
+
+
+/****************************************************************************************************
+ * 												MACROS
+ ***************************************************************************************************/
+#define READY                  0x10 //used in sync_send() and sync_recive() functions for synchronization
+
+#define MATCHED_PASSWORDS      1 // agreement between the two MCUs after checking the passwords
+#define UNMATCHED_PASSWORDS    0 // agreement between the two MCUs after checking the passwords
+/*
+ * agreement between the two MCUS when we want to create system password
+ */
+#define CREATE_SYSTEM_PASSWORD 0xFA
+/*
+ * agreement between the two MCUS when we want to start MENU + or - for open or change passwords
+ */
+#define MENU                   0xFB
+/* this Macros is used for door operation
+ * agreement between the two MCUS when the door operation is finished
+ */
+#define DONE_DOOR_OPERATION    0xFC
+/*
+ * agreement between the two MCUS when the system is locked
+ */
+#define LOCKED                 0xFD
+/*******************************************************************************************************
+ * 												  Functions Definitions
+ ******************************************************************************************************/
+
+uint8 seconds = 0 ;
+/*timer1 call back function*/
+void count_second()
+{
+	seconds++;
+}
+
+/*
+ * Description :
+ * intializations of the global interrupt , Buzzer , DcMotor , TIMER1, I2C , LCD , UART and LCD
+ */
+
+void initialization(void)
+{
+	SREG|=(1<<7);
+	Buzzer_init();
+	DcMotor_Init();
+	Timer1_setCallBack(count_second);
+	Timer1_ConfigType timer1_configurations = {0,7812,F_CPU_1024,COMPARE};
+	//Timer1_init(&timer1_configurations);
+	TWI_ConfigType twi_configurations = {0x10,400000};
+	TWI_init(&twi_configurations);
+	UART_ConfigType uart_configurations = {DATA_8_BIT,DISABLED,ONE_STOP_BIT,9600};
+	UART_init(&uart_configurations);
+	LCD_init();
+	_delay_ms(300);
+}
+
+/*
+ * Description :
+ * sync the time of send and recive between the UARTs
+ */
+void sync_send(void)
+{
+	UART_sendByte(READY);
+	while(UART_recieveByte()!=READY);
+}
+
+/*
+ * Description :
+ * sync the time of send and recive between the UARTs
+ */
+void sync_recive(void)
+{
+	while(UART_recieveByte()!=READY);
+	UART_sendByte(READY);
+}
+
+/*
+ * Description :
+ * This function is responsible for sending the password from one Microcontroller to the other
+ * through UART
+ * and this function calls sync_send() to start sending
+ */
+void send_pass(uint8 *pass)
+{
+	uint8 i;
+	sync_send();
+	for (i = 0 ; i<5 ; i++)
+	{
+			UART_sendByte(pass[i]);
+	}
+}
+
+/*
+ * Description:
+ * Receives a 5-digits password via UART from another microcontroller after
+ * initiating reception with sync_receive().
+ * Stores the received password in the specified array.
+ *
+ * Parameters:
+ * uint8 *receive_pass: Pointer to an array where the received password will be stored.
+ */
+void recive_password(uint8 *recive_pass)
+{
+	uint8 i ;
+	sync_recive();
+	for (i = 0 ; i<5 ; i++)
+		{
+			recive_pass[i] = UART_recieveByte();
+		}
+}
+
+/*
+ * Description :
+ * This function is responsible for compare between two passwords
+ * if matched it will return  one  which is matched
+ * if not matched it will return  zero  which is unmatched
+ */
+uint8 check_passwords(uint8 *check_password_one,uint8 *check_password_two)
+{
+	uint8 i;
+	uint8  two_passwords_are_equal = 1; // Assume arrays are equal by default
+	for (i = 0 ; i<5 ; i++)
+	{
+		 if (check_password_one[i] != check_password_two[i])
+		 {
+		     return 0;
+		 }
+	}
+	return two_passwords_are_equal;
+}
+
+/*
+ * Description:
+ * Writes a 5-digits(uint8) password to EEPROM memory starting from address 0x0311.
+ * Delays 10 milliseconds after each digit write.
+ *
+ * Parameters:
+ * uint8 *password: Pointer to an array containing the password to be written.
+ */
+void write_to_eeprom(uint8 *password)
+{
+	uint8 i;
+	for (i =0 ;i<5 ; i++)
+			{
+				EEPROM_writeByte((0x0311+i),password[i]);
+				_delay_ms(10);
+			}
+}
+
+/*
+ * Description:
+ * Reads a 5-digits(uint8)  password from EEPROM starting at address 0x311.
+ * Delays 10 milliseconds after each character read.
+ *
+ * Parameters:
+ * uint8 *password_eeprom: Pointer to an array where the read password will be stored.
+ */
+void read_from_eeprom(uint8 *password_epprom)
+{
+	uint8 i;
+	for (i =0 ;i<5 ; i++)
+			{
+				EEPROM_readByte((0x311+i),&password_epprom[i]);
+				_delay_ms(10);
+			}
+}
+
+/*
+ * Description:
+ *  Initiates timer1 and start count the seconds and open the door using motor for a specific time
+ *
+ */
+void open_door(void)
+{
+
+	LCD_clearScreen();
+	Timer1_ConfigType timer1_configurations = {0,7812,F_CPU_1024,COMPARE};
+	Timer1_init(&timer1_configurations);
+	seconds=0;
+	LCD_displayString("Unlocking Door");
+	LCD_moveCursor(1,0);
+	LCD_displayString("Sec :");
+	while(seconds !=15)
+	{
+		LCD_moveCursor(1,5);
+		LCD_intgerToString(seconds+1);
+		DcMotor_Rotate(CW,100);
+	}
+	DcMotor_Rotate(STOP,0);
+	Timer1_deInit();
+}
+
+/*
+ * Description:
+ *  Initiates timer1 and start count the seconds and hold the door using motor for a specific time
+ *
+ */
+void hold_door(void)
+{
+	LCD_clearScreen();
+	Timer1_ConfigType timer1_configurations = {0,7812,F_CPU_1024,COMPARE};
+    Timer1_init(&timer1_configurations);
+	seconds=0;
+	LCD_displayString("DOOR IS OPEN");
+	LCD_moveCursor(1,0);
+	LCD_displayString("Sec :");
+	while(seconds !=3)
+	{
+		LCD_moveCursor(1,5);
+		LCD_intgerToString(seconds+1);
+		DcMotor_Rotate(STOP,0);
+	}
+	Timer1_deInit();
+}
+
+/*
+ * Description:
+ *  Initiates timer1 and start count the seconds and close the door using motor for a specific time
+ *
+ */
+void close_door()
+{
+	LCD_clearScreen();
+	Timer1_ConfigType timer1_configurations = {0,7812,F_CPU_1024,COMPARE};
+	Timer1_init(&timer1_configurations);
+	seconds=0;
+	LCD_displayString("Door Is Locking");
+	LCD_moveCursor(1,0);
+	LCD_displayString("Sec :");
+	while(seconds !=15)
+	{
+		LCD_moveCursor(1,5);
+		LCD_intgerToString(seconds+1);
+		DcMotor_Rotate(A_CW,100);
+	}
+	DcMotor_Rotate(STOP,0);
+	Timer1_deInit();
+}
+
+/*
+ * Description:
+ *  this function is responsible for open door operation open , hold and close
+ *  this function calls three main functions open_door() ,  hold_door() and close_door()
+ *
+ *
+ */
+void door_operation(void)
+{
+
+		open_door();
+
+		hold_door();
+
+		close_door();
+
+		sync_send();
+		UART_sendByte(DONE_DOOR_OPERATION); //send this byte to the HMI_ECU to tell him Control_ECU done the operation
+		LCD_clearScreen();
+}
+
+/*
+ * Description:
+ *  this function is responsible for active buzzer for 1 minute using Timer1
+ *
+ */
+void system_locked(void)
+{
+	LCD_clearScreen();
+	Timer1_ConfigType timer1_configurations = {0,7812,F_CPU_1024,COMPARE};
+	Timer1_init(&timer1_configurations);
+	seconds=0;
+	LCD_displayString("BUZZER IS ON");
+	LCD_moveCursor(1,0);
+	LCD_displayString("Sec :");
+	Buzzer_on();
+	while(seconds !=60)
+	{
+		LCD_moveCursor(1,5);
+		LCD_intgerToString(seconds+1);
+	}
+	LCD_clearScreen();
+	Buzzer_off();
+	seconds=0;
+	LCD_displayString("LOCKED SYSTEM");
+	LCD_moveCursor(1,0);
+	LCD_displayString("Sec :");
+	while(seconds !=60)
+	{
+		LCD_moveCursor(1,5);
+		LCD_intgerToString(seconds+1);
+	}
+	LCD_clearScreen();
+	Timer1_deInit();
+}
+
+/*
+ * Description:
+ * This function is designed to ensure the accurate reception and display of password digits on
+ *  the developer LCD to be able to debug
+ */
+void print_pass(uint8 *pass)
+{
+	uint8 i ;
+	for(i=0;i<5;i++)
+	{
+		LCD_intgerToString(pass[i]);
+	}
+}
+
+int main (void){
+	initialization();
+
+	uint8 password_one[5]; //array to save the first password received from HMI_ECU and do operations on it
+	uint8 password_two[5]; //array to save the second password received from HMI_ECU and do operations on it
+	uint8 password_three[5]; //array to save the other check passwords received from HMI_ECU and do operations on it
+	uint8 password_epprom[5];//array to save the password received from EEPROM and do operations on it
+	uint8 flag=CREATE_SYSTEM_PASSWORD; // //flag to start from CREATE_SYSTEM_PASSWORD
+
+	sync_recive();    //GETTING UART READY
+	while(1)
+	{
+		/*
+		 * Sends a flag to HMI_ECU indicating the action the two ECUs will take
+		 */
+		sync_send();
+		UART_sendByte(flag);
+
+		if (flag == CREATE_SYSTEM_PASSWORD)
+		{
+			recive_password(password_one);
+			recive_password(password_two);
+			LCD_clearScreen();
+			LCD_displayString("pass 1 :");
+			print_pass(password_one);
+			LCD_moveCursor(1,0);
+			LCD_displayString("pass 2 :");
+			print_pass(password_two);
+			_delay_ms(1500);
+			LCD_clearScreen();
+			if (check_passwords(password_one,password_two) == MATCHED_PASSWORDS)
+			{
+				sync_send(); // sync start send matched or unmatched bit
+				UART_sendByte(MATCHED_PASSWORDS);
+
+				LCD_clearScreen();
+				LCD_moveCursor(0,4);
+				LCD_displayString("MATCHED");
+				LCD_moveCursor(1,3);
+				LCD_displayString("PASSWORDS");
+				_delay_ms(1000);
+				LCD_clearScreen();
+
+
+				/* send the Password to EEOROM through TWI
+				 * writing only one password , I chose here password_one[]
+			     */
+				write_to_eeprom(password_one);
+
+				LCD_clearScreen();
+				LCD_displayString("PASS SAVED IN");
+				LCD_moveCursor(1,3);
+				LCD_displayString("EEPROM");
+				_delay_ms(1000);
+				LCD_clearScreen();
+
+				flag = MENU;
+				sync_send();
+				UART_sendByte(flag); // send MENU macro to HMI_ECU
+			}
+			else if (check_passwords(password_one,password_two) == UNMATCHED_PASSWORDS)
+			{
+				sync_send(); // start send matched or unmatched passwords
+				UART_sendByte(UNMATCHED_PASSWORDS);
+				LCD_displayString("UNMATCHED PASSWORDS");
+				_delay_ms(1000);
+				LCD_clearScreen();
+
+				/*start the system again and send this flag to MHI_ECU */
+				flag = CREATE_SYSTEM_PASSWORD;
+			}
+		}
+
+		if (flag == MENU)
+		{
+			uint8 plus_or_minus;
+
+			sync_recive();
+			plus_or_minus = UART_recieveByte(); //receive the pressed key if + or -
+
+			if (plus_or_minus == '+')
+			{
+			    uint8	i=0;
+				while(i<3)
+				{
+					recive_password(password_three);   //receive password and save it in password_three
+					read_from_eeprom(password_epprom); //read password saved in eeprom and save it in password_epprom
+
+					if (check_passwords(password_three,password_epprom) == MATCHED_PASSWORDS)
+					{
+						/*
+						 * if matched send MATCHED_PASSWORDS to HMI_ECU
+						 * and do door operation
+						 * and let flag = MENU to start the menu again
+						 * and send MENU macro to HMI_ECU to start the MENU either
+						 * the flag will be sent to HMI_ECU at the begging of the main while(1) after break
+						 *
+						 */
+						sync_send(); // sync start send matched or unmatched byte
+						UART_sendByte(MATCHED_PASSWORDS);
+						door_operation();
+
+						flag = MENU;
+						break;  //after break will start from the main while(1) and send the flag to HMI_ECU
+
+					}
+					else if ((check_passwords(password_three,password_epprom) == UNMATCHED_PASSWORDS) && (i==2))
+					{
+						/*
+						 * if unmatched and i=2 passwords send LOCKED  to HMI_ECU
+						 * and do system locked operation
+						 * and let flag = MENU to start the menu again
+						 * and send MENU macro to HMI_ECU to start the MENU either
+						 * the flag will be sent to HMI_ECU at the begging of the main while(1) after break
+						 */
+						sync_send(); // start send matched or unmatched passwords
+						UART_sendByte(LOCKED);
+						system_locked();
+
+						flag = MENU;
+						break; //after break will start from the main while(1) and send the flag to HMI_ECU
+					}
+					else if(check_passwords(password_three,password_epprom) == UNMATCHED_PASSWORDS)
+					{
+						sync_send(); // sync start send matched or unmatched byte
+						UART_sendByte(UNMATCHED_PASSWORDS);
+					}
+					i++;
+				}
+			}
+			else if (plus_or_minus == '-')
+			{
+				uint8 i=0;
+				while (i<3)
+				{
+					recive_password(password_three);   //receive password and save it in password_three
+					read_from_eeprom(password_epprom); //read password saved in eeprom and save it in password_epprom
+
+					if (check_passwords(password_three,password_epprom) == MATCHED_PASSWORDS)
+					{
+						/*
+						 * if matched  send MATCHED_PASSWORDS to HMI_ECU
+						 * and let flag = CREATE_SYSTEM_PASSWORD to start the menu again
+						 * and send CREATE_SYSTEM_PASSWORD macro to HMI_ECU to start the create system password either
+						 * the flag will be sent to HMI_ECU at the begging of the main while(1) after break
+						 */
+						sync_send();
+						UART_sendByte(MATCHED_PASSWORDS);
+
+						flag = CREATE_SYSTEM_PASSWORD;
+						break;//after break will start from the main while(1) and send the flag to HMI_ECU
+
+
+					}
+					else if ((check_passwords(password_three,password_epprom) == UNMATCHED_PASSWORDS) && (i==2))
+					{
+						/*
+						* if unmatched and i =2 send LOCKED  to HMI_ECU
+						* and do system locked operation
+						* and let flag = MENU to start the menu again
+						* and send MENU macro to HMI_ECU to start the MENU either
+						* the flag will be sent to HMI_ECU at the begging of the main while(1) after break
+						*/
+						sync_send();
+						UART_sendByte(LOCKED);
+						system_locked();
+
+						flag = MENU;
+						break; //after break will start from the main while(1) and send the flag to HMI_ECU
+					}
+					else if(check_passwords(password_three,password_epprom) == UNMATCHED_PASSWORDS)
+					{
+						sync_send();
+						UART_sendByte(UNMATCHED_PASSWORDS);
+					}
+					i++;
+				}
+			}
+		}
+	}
+}
+
+
+
+
+
+
+
